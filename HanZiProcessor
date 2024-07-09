@@ -1,0 +1,353 @@
+package com.sbrf.kfl.subsidy.app;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+
+public class HanZiProcessor {
+
+    private final static List<Row> rows = new ArrayList<>();
+    private final static Map<String, String> dictionary = new HashMap<>();
+    private final static Map<HanZi, List<Word>> characters = new LinkedHashMap<>();
+    private final static Map<String, List<HanZi>> syllables = new LinkedHashMap<>();
+    private final static List<FlashCard> flashCards = new ArrayList<>();
+
+    private final static Set<Character> tones = Set.of('1', '2', '3', '4', '5');
+    private final static List<String> romanDigits = List.of("I", "II", "III", "IV", "V", "VI", "VII", "VIII");
+    private final static Integer CHAR_COUNT = 4;
+    private final static Integer WORD_COUNT = 3;
+
+    public static final HanZi ONE = new HanZi('一', "yi1", HskLevel.HSK1);
+    public static final HanZi TWO = new HanZi('二', "er4", HskLevel.HSK1);
+    public static final HanZi THREE = new HanZi('三', "san1", HskLevel.HSK1);
+    public static final HanZi FOUR = new HanZi('四', "si4", HskLevel.HSK1);
+
+    private final static FlashCard placeholder = new FlashCard("sample", List.of(ONE, TWO, THREE, FOUR), HskLevel.HSK1);
+
+    static {
+        ONE.words.add(new Word("一白", HskLevel.HSK1));
+        ONE.words.add(new Word("一千", HskLevel.HSK1));
+        ONE.words.add(new Word("一万", HskLevel.HSK1));
+        ONE.meaning = "One";
+
+        TWO.words.add(new Word("二白", HskLevel.HSK1));
+        TWO.words.add(new Word("二千", HskLevel.HSK1));
+        TWO.words.add(new Word("二万", HskLevel.HSK1));
+        TWO.meaning = "Two";
+
+        THREE.words.add(new Word("三白", HskLevel.HSK1));
+        THREE.words.add(new Word("三千", HskLevel.HSK1));
+        THREE.words.add(new Word("三万", HskLevel.HSK1));
+        THREE.meaning = "Three";
+
+        FOUR.words.add(new Word("四白", HskLevel.HSK1));
+        FOUR.words.add(new Word("四千", HskLevel.HSK1));
+        FOUR.words.add(new Word("四万", HskLevel.HSK1));
+        FOUR.meaning = "Four";
+    }
+
+    private enum HskLevel {
+        HSK1("/hsk/hsk1.txt", "/hsk/hsk1dict.txt"),
+        HSK2("/hsk/hsk2.txt", "/hsk/hsk2dict.txt"),
+        HSK3("/hsk/hsk3.txt", "/hsk/hsk3dict.txt"),
+        HSK4("/hsk/hsk4.txt", "/hsk/hsk4dict.txt"),
+        HSK5("/hsk/hsk5.txt", "/hsk/hsk5dict.txt"),
+        HSK6("/hsk/hsk6.txt", "/hsk/hsk6dict.txt"),
+        HSK7_9("/hsk/hsk7.txt", "/hsk/hsk7dict.txt");
+
+        private String wordSetFile;
+        private String dictFile;
+
+        HskLevel(String fileName, String dictFile) {
+            this.wordSetFile = fileName;
+            this.dictFile = dictFile;
+        }
+    }
+
+    @Data
+    @AllArgsConstructor
+    private static class Row {
+        private String simplified;
+        private String traditional;
+        private String pinyin;
+        private HskLevel hskLevel;
+    }
+
+    private static class HanZi {
+        private final Character character;
+        private final String syllable;
+        private final HskLevel hskLevel;
+        private final List<Word> words = new ArrayList<>();
+        private String meaning;
+
+        public HanZi(Character character, String syllable, HskLevel hskLevel) {
+            this.character = character;
+            this.syllable = syllable.toLowerCase();
+            this.hskLevel = hskLevel;
+        }
+
+        public String first() {
+            return sample(1);
+        }
+
+        public String second() {
+            return sample(2);
+        }
+
+        public String third() {
+            return sample(3);
+        }
+
+        private String sample(int n) {
+            return words.size() < n ? "" : words.get(n - 1).text;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            HanZi hanZi = (HanZi) o;
+            return character.equals(hanZi.character) && syllable.equals(hanZi.syllable);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(character, syllable);
+        }
+
+        @Override
+        public String toString() {
+            final StringBuilder sb = new StringBuilder("HanZi{");
+            sb.append("character=").append(character);
+            sb.append(", syllable='").append(syllable).append('\'');
+            sb.append(", hskLevel=").append(hskLevel);
+            sb.append('}');
+            return sb.toString();
+        }
+    }
+
+    @Data
+    private static class Word {
+        private final String text;
+        private final HskLevel level;
+    }
+
+    @Data
+    private static class FlashCard implements Comparable<FlashCard> {
+        private final String SEPARATOR = "\t";
+
+        private final String title;
+        private final List<HanZi> characters;
+        private final HskLevel level;
+
+        @Override
+        public int compareTo(FlashCard another) {
+            return this.level.ordinal() - another.level.ordinal();
+        }
+
+        public String toCsvRow() {
+            StringBuilder builder = new StringBuilder();
+            builder.append(title).append(SEPARATOR);
+
+            for (int i = 0; i < CHAR_COUNT; i++) {
+                if (i < characters.size()) {
+                    HanZi hanZi = characters.get(i);
+                    builder.append(hanZi.character).append(SEPARATOR);
+                    for (int j = 0; j < WORD_COUNT; j++) {
+                        if (j < hanZi.words.size()) {
+                            builder.append(hanZi.words.get(j).text);
+                        }
+                        builder.append(SEPARATOR);
+                    }
+                    if (hanZi.meaning != null) {
+                        builder.append(hanZi.meaning);
+                    }
+                    builder.append(SEPARATOR);
+                } else {
+                    builder.append(SEPARATOR.repeat(6));
+                }
+            }
+
+            return builder.toString();
+        }
+
+    }
+
+    public static void main(String[] args) throws IOException {
+        for (HskLevel hskLevel : HskLevel.values()) {
+            handleWordSet(hskLevel);
+            handleDictionary(hskLevel);
+        }
+        extractHanZi();
+        extractSyllables();
+        removeDoubles();
+        createCards();
+        showStatistics();
+    }
+
+    private static void handleWordSet(HskLevel hskLevel) throws IOException {
+        InputStream fileStream = HanZiProcessor.class.getResourceAsStream(hskLevel.wordSetFile);
+        List<String> lines = IOUtils.readLines(fileStream);
+        for (String line : lines) {
+            String[] parts = StringUtils.split(line, '\t');
+            assert parts.length == 3 : hskLevel.wordSetFile + " " + line;
+            Row row = new Row(parts[0], parts[1], parts[2], hskLevel);
+            rows.add(row);
+        }
+    }
+
+    private static void handleDictionary(HskLevel hskLevel) throws IOException {
+        InputStream fileStream = HanZiProcessor.class.getResourceAsStream(hskLevel.dictFile);
+        List<String> lines = IOUtils.readLines(fileStream);
+        for (String line : lines) {
+            int endTraditional = line.indexOf(',');
+            int endSimple = line.indexOf(',', endTraditional + 1);
+            int endPinyin = line.indexOf(',', endSimple + 1);
+
+            String key = line.substring(endTraditional + 1, endSimple);
+            String value = line.substring(endPinyin + 1).replace('"', ' ').strip();
+
+            dictionary.put(key, value);
+        }
+    }
+
+    private static void extractHanZi() {
+        for (Row row : rows) {
+            if (row.simplified.length() == 1) {
+                HanZi hanZi = new HanZi(row.simplified.charAt(0), row.pinyin, row.hskLevel);
+                if (!characters.containsKey(hanZi)) {
+                    characters.put(hanZi, new ArrayList<>());
+                }
+            } else {
+                List<String> pinYinParts = getParts(row.pinyin);
+                assert pinYinParts.size() == row.simplified.length() : row;
+
+                for (int i = 0; i < pinYinParts.size(); i++) {
+                    HanZi hanZi = new HanZi(row.simplified.charAt(i), pinYinParts.get(i), row.hskLevel);
+                    if (!characters.containsKey(hanZi)) {
+                        characters.put(hanZi, new ArrayList<>());
+                    }
+                    characters.get(hanZi).add(new Word(row.simplified, row.hskLevel));
+                }
+            }
+        }
+        for (Map.Entry<HanZi, List<Word>> entry : characters.entrySet()) {
+            entry.getKey().words.addAll(entry.getValue());
+            if (entry.getValue().isEmpty()) {
+                entry.getKey().meaning = dictionary.get(entry.getKey().character.toString());
+            }
+        }
+    }
+
+    private static void extractSyllables() {
+        for (HanZi hanZi : characters.keySet()) {
+            if (!syllables.containsKey(hanZi.syllable)) {
+                syllables.put(hanZi.syllable, new ArrayList<>());
+            }
+            syllables.get(hanZi.syllable).add(hanZi);
+        }
+    }
+
+    private static void removeDoubles() {
+        Iterator<Map.Entry<String, List<HanZi>>> entryIterator = syllables.entrySet().iterator();
+        while (entryIterator.hasNext()) {
+            Map.Entry<String, List<HanZi>> entry = entryIterator.next();
+            if (entry.getKey().contains("5")) {
+                Iterator<HanZi> hanZiIterator = entry.getValue().iterator();
+                while (hanZiIterator.hasNext()) {
+                    HanZi hanZi = hanZiIterator.next();
+                    hanZi.words.removeIf(word -> word.text.length() == 2 && word.text.charAt(0) == word.text.charAt(1));
+                    if (hanZi.words.isEmpty() && hanZi.meaning == null) {
+                        hanZiIterator.remove();
+                    }
+                }
+            }
+            if (entry.getValue().isEmpty()) {
+                entryIterator.remove();
+            }
+        }
+    }
+
+    private static void createCards() {
+        for (Map.Entry<String, List<HanZi>> entry : syllables.entrySet()) {
+            flashCards.addAll(toCards(entry.getKey(), entry.getValue()));
+        }
+        Collections.sort(flashCards);
+
+        System.out.println(placeholder.toCsvRow());
+        for (FlashCard flashCard : flashCards) {
+            System.out.println(flashCard.toCsvRow());
+        }
+    }
+
+
+    private static void showStatistics() {
+        TreeMap<Integer, Integer> distribution = new TreeMap<>();
+        for (List<HanZi> list : syllables.values()) {
+            if (!distribution.containsKey(list.size())) {
+                distribution.put(list.size(), 0);
+            }
+            Integer count = distribution.get(list.size());
+            distribution.put(list.size(), count + 1);
+        }
+
+        System.out.println(distribution);
+        Integer total = distribution.values().stream().reduce(0, Integer::sum);
+        System.out.println(total);
+        int sum = 0;
+        for (Map.Entry<Integer, Integer> entry : distribution.entrySet()) {
+            sum += entry.getValue();
+            System.out.println(entry.getKey() + " count=" + entry.getValue() + " total=" + sum + " share=" + sum / (double) total);
+        }
+    }
+
+    private static List<FlashCard> toCards(String syllable, List<HanZi> hanZiList) {
+        if (hanZiList.size() <= CHAR_COUNT) {
+            return List.of(new FlashCard(syllable, hanZiList, hanZiList.get(0).hskLevel));
+        }
+        ArrayList<FlashCard> cards = new ArrayList<>();
+        int fullCardCount = hanZiList.size() / CHAR_COUNT;
+        int restCardCount = hanZiList.size() % CHAR_COUNT;
+
+        for (int i = 0; i < fullCardCount; i++) {
+            List<HanZi> subList = hanZiList.subList(i * CHAR_COUNT, (i + 1) * CHAR_COUNT);
+            cards.add(new FlashCard(syllable + " " + romanDigits.get(i), subList, subList.get(0).hskLevel));
+        }
+
+        if (restCardCount != 0) {
+            List<HanZi> subList = hanZiList.subList(fullCardCount * CHAR_COUNT, fullCardCount * CHAR_COUNT + restCardCount);
+            cards.add(new FlashCard(syllable + " " + romanDigits.get(fullCardCount), subList, subList.get(0).hskLevel));
+        }
+        return cards;
+    }
+
+    private static List<String> getParts(String pinyin) {
+        ArrayList<String> parts = new ArrayList<>();
+        int start = 0;
+        for (int i = 0; i < pinyin.length(); i++) {
+            char ch = pinyin.charAt(i);
+            if (tones.contains(ch)) {
+                parts.add(pinyin.substring(start, i + 1));
+                start = i + 1;
+            }
+        }
+        if (start != pinyin.length()) {
+            parts.add(pinyin.substring(start));
+        }
+        return parts;
+    }
+}
